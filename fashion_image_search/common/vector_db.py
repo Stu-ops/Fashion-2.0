@@ -8,12 +8,17 @@ compositional reranking.
 
 from __future__ import annotations
 
+import gc
 import json
 import math
 from pathlib import Path
 from typing import Protocol
 
 from fashion_image_search.common.schemas import ImageRecord, Vector
+
+# Global registry of open FaissVectorStore instances so we can release handles
+# on Windows where memory-mapped FAISS files cannot be deleted while open.
+_OPEN_FAISS_STORES: list["FaissVectorStore"] = []
 
 
 def cosine_similarity(left: Vector, right: Vector) -> float:
@@ -109,6 +114,16 @@ class FaissVectorStore:
             json.dump([record.to_dict() for record in self.records], handle, indent=2)
         self.index = index
 
+    def close(self) -> None:
+        """Release the FAISS index handle so the file can be deleted on Windows.
+
+        On Windows, memory-mapped FAISS files remain locked while the index
+        object exists. Calling this before deletion is required to avoid
+        PermissionError.
+        """
+        self.index = None
+        gc.collect()
+
     def load(self) -> "FaissVectorStore":
         try:
             import faiss
@@ -121,6 +136,9 @@ class FaissVectorStore:
         with self.metadata_path.open("r", encoding="utf-8") as handle:
             self.records = [ImageRecord.from_dict(item) for item in json.load(handle)]
         self.index = faiss.read_index(str(self.faiss_path))
+        # Register so we can close all stores on reset (fixes Windows file-lock)
+        if self not in _OPEN_FAISS_STORES:
+            _OPEN_FAISS_STORES.append(self)
         return self
 
     def search_global(self, query_embedding: Vector, top_k: int) -> list[tuple[ImageRecord, float]]:
@@ -138,6 +156,20 @@ class FaissVectorStore:
                 continue
             results.append((self.records[int(index)], float(score)))
         return results
+
+
+def close_all_open_stores() -> None:
+    """Close all open FAISS stores to release memory-mapped file handles.
+
+    Call this before attempting to delete FAISS index files on Windows,
+    because memory-mapped handles block file deletion.
+    """
+    for store in _OPEN_FAISS_STORES[:]:
+        try:
+            store.close()
+        except Exception:
+            pass  # Ignore errors during close; best-effort cleanup
+    _OPEN_FAISS_STORES.clear()
 
 
 def make_vector_store(kind: str, metadata_path: Path, faiss_path: Path | None = None) -> VectorStore:

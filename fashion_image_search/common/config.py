@@ -16,7 +16,7 @@ class ModelConfig:
     encoder_name: str = "Marqo/marqo-fashionSigLIP"
     detector_threshold: float = 0.50
     max_regions: int = 6
-    embedding_dim: int = 64
+    embedding_dim: int = 64   # offline mode only; HF mode uses 768 (FashionSigLIP)
     backend: str = os.getenv("FASHION_SEARCH_BACKEND", "offline")
     device: str = os.getenv("FASHION_SEARCH_DEVICE", "auto")
 
@@ -33,7 +33,9 @@ class SearchConfig:
 
 @dataclass(frozen=True)
 class Paths:
-    data_dir: Path = ROOT / "val_test2020" / "test"
+    # Bug #9 fix: unified data_dir so CLI and Streamlit both use Dataset/ by default.
+    # Override via --data-dir when running HF indexing on val_test2020_sample_1600/test.
+    data_dir: Path = ROOT / "Dataset"
     index_path: Path = ROOT / "artifacts" / "fashion_index.json"
     faiss_index_path: Path = ROOT / "artifacts" / "fashion_global.faiss"
 

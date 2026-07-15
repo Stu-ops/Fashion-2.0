@@ -1,0 +1,375 @@
+[
+  {
+    "query": "A person in a bright yellow raincoat.",
+    "parsed_slots": [
+      {
+        "color": "yellow",
+        "garment_type": "raincoat",
+        "phrase": "yellow raincoat"
+      }
+    ],
+    "scene_phrase": null,
+    "style_residual": null,
+    "results": [
+      {
+        "rank": 1,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0094940c58c343b742f48ae26eb5e9fa.jpg",
+        "image_id": "0094940c58c343b742f48ae26eb5e9fa",
+        "score": 0.132562,
+        "global_score": 0.084197,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "yellow raincoat: region=coat, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 2,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\004e9e21cd1aca568a8ffc77a54638ce.jpg",
+        "image_id": "004e9e21cd1aca568a8ffc77a54638ce",
+        "score": 0.132562,
+        "global_score": 0.084197,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "yellow raincoat: region=coat, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 3,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0046f98599f05fd7233973e430d6d04d.jpg",
+        "image_id": "0046f98599f05fd7233973e430d6d04d",
+        "score": 0.132562,
+        "global_score": 0.084197,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "yellow raincoat: region=coat, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 4,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\003d41dd20f271d27219fe7ee6de727d.jpg",
+        "image_id": "003d41dd20f271d27219fe7ee6de727d",
+        "score": 0.132562,
+        "global_score": 0.084197,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "yellow raincoat: region=coat, color=gray, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 5,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\005b37fce3c0f641d327d95dd832f51b.jpg",
+        "image_id": "005b37fce3c0f641d327d95dd832f51b",
+        "score": 0.076959,
+        "global_score": 0.067836,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "yellow raincoat: region=coat, color=beige, sim=0.000, bonus=0.60"
+        ]
+      }
+    ]
+  },
+  {
+    "query": "Professional business attire inside a modern office.",
+    "parsed_slots": [],
+    "scene_phrase": "office",
+    "style_residual": "professional business modern",
+    "results": [
+      {
+        "rank": 1,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\003d41dd20f271d27219fe7ee6de727d.jpg",
+        "image_id": "003d41dd20f271d27219fe7ee6de727d",
+        "score": 0.069035,
+        "global_score": 0.124274,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 2,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\005b37fce3c0f641d327d95dd832f51b.jpg",
+        "image_id": "005b37fce3c0f641d327d95dd832f51b",
+        "score": 0.0,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 3,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0094940c58c343b742f48ae26eb5e9fa.jpg",
+        "image_id": "0094940c58c343b742f48ae26eb5e9fa",
+        "score": -0.031068,
+        "global_score": -0.124274,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 4,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\004e9e21cd1aca568a8ffc77a54638ce.jpg",
+        "image_id": "004e9e21cd1aca568a8ffc77a54638ce",
+        "score": -0.031068,
+        "global_score": -0.124274,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 5,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0046f98599f05fd7233973e430d6d04d.jpg",
+        "image_id": "0046f98599f05fd7233973e430d6d04d",
+        "score": -0.031068,
+        "global_score": -0.124274,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      }
+    ]
+  },
+  {
+    "query": "Someone wearing a blue shirt sitting on a park bench.",
+    "parsed_slots": [
+      {
+        "color": "blue",
+        "garment_type": "shirt",
+        "phrase": "blue shirt"
+      }
+    ],
+    "scene_phrase": "park",
+    "style_residual": null,
+    "results": [
+      {
+        "rank": 1,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\003d41dd20f271d27219fe7ee6de727d.jpg",
+        "image_id": "003d41dd20f271d27219fe7ee6de727d",
+        "score": 0.129779,
+        "global_score": 0.073066,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "blue shirt: region=shirt, color=gray, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 2,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0094940c58c343b742f48ae26eb5e9fa.jpg",
+        "image_id": "0094940c58c343b742f48ae26eb5e9fa",
+        "score": 0.111513,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "blue shirt: region=shirt, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 3,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\004e9e21cd1aca568a8ffc77a54638ce.jpg",
+        "image_id": "004e9e21cd1aca568a8ffc77a54638ce",
+        "score": 0.111513,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "blue shirt: region=shirt, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 4,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0046f98599f05fd7233973e430d6d04d.jpg",
+        "image_id": "0046f98599f05fd7233973e430d6d04d",
+        "score": 0.111513,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.114473,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "blue shirt: region=shirt, color=black, sim=0.114, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 5,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\005b37fce3c0f641d327d95dd832f51b.jpg",
+        "image_id": "005b37fce3c0f641d327d95dd832f51b",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "blue shirt: region=shirt, color=beige, sim=0.000, bonus=0.60"
+        ]
+      }
+    ]
+  },
+  {
+    "query": "Casual weekend outfit for a city walk.",
+    "parsed_slots": [],
+    "scene_phrase": "city street",
+    "style_residual": "casual weekend",
+    "results": [
+      {
+        "rank": 1,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0094940c58c343b742f48ae26eb5e9fa.jpg",
+        "image_id": "0094940c58c343b742f48ae26eb5e9fa",
+        "score": 0.073899,
+        "global_score": 0.109599,
+        "scene_score": 0.232495,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 2,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\004e9e21cd1aca568a8ffc77a54638ce.jpg",
+        "image_id": "004e9e21cd1aca568a8ffc77a54638ce",
+        "score": 0.073899,
+        "global_score": 0.109599,
+        "scene_score": 0.232495,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 3,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0046f98599f05fd7233973e430d6d04d.jpg",
+        "image_id": "0046f98599f05fd7233973e430d6d04d",
+        "score": 0.073899,
+        "global_score": 0.109599,
+        "scene_score": 0.232495,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 4,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\005b37fce3c0f641d327d95dd832f51b.jpg",
+        "image_id": "005b37fce3c0f641d327d95dd832f51b",
+        "score": 0.0,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      },
+      {
+        "rank": 5,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\003d41dd20f271d27219fe7ee6de727d.jpg",
+        "image_id": "003d41dd20f271d27219fe7ee6de727d",
+        "score": 0.0,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.0,
+        "slot_breakdown": []
+      }
+    ]
+  },
+  {
+    "query": "A red tie and a white shirt in a formal setting.",
+    "parsed_slots": [
+      {
+        "color": "red",
+        "garment_type": "tie",
+        "phrase": "red tie"
+      },
+      {
+        "color": "white",
+        "garment_type": "shirt",
+        "phrase": "white shirt"
+      }
+    ],
+    "scene_phrase": "formal setting",
+    "style_residual": "formal",
+    "results": [
+      {
+        "rank": 1,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0094940c58c343b742f48ae26eb5e9fa.jpg",
+        "image_id": "0094940c58c343b742f48ae26eb5e9fa",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "red tie: region=tie, color=brown, sim=0.000, bonus=0.60",
+          "white shirt: region=shirt, color=black, sim=0.000, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 2,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\005b37fce3c0f641d327d95dd832f51b.jpg",
+        "image_id": "005b37fce3c0f641d327d95dd832f51b",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "red tie: region=tie, color=beige, sim=0.000, bonus=0.60",
+          "white shirt: region=shirt, color=beige, sim=0.000, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 3,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\004e9e21cd1aca568a8ffc77a54638ce.jpg",
+        "image_id": "004e9e21cd1aca568a8ffc77a54638ce",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "red tie: region=tie, color=beige, sim=0.000, bonus=0.60",
+          "white shirt: region=shirt, color=black, sim=0.000, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 4,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\0046f98599f05fd7233973e430d6d04d.jpg",
+        "image_id": "0046f98599f05fd7233973e430d6d04d",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "red tie: region=tie, color=black, sim=0.000, bonus=0.60",
+          "white shirt: region=shirt, color=black, sim=0.000, bonus=0.60"
+        ]
+      },
+      {
+        "rank": 5,
+        "image_path": "C:\\Coding\\Assigment\\model\\val_test2020\\test\\003d41dd20f271d27219fe7ee6de727d.jpg",
+        "image_id": "003d41dd20f271d27219fe7ee6de727d",
+        "score": 0.06,
+        "global_score": 0.0,
+        "scene_score": 0.0,
+        "slot_score": 0.0,
+        "attribute_bonus": 0.6,
+        "slot_breakdown": [
+          "red tie: region=tie, color=brown, sim=0.000, bonus=0.60",
+          "white shirt: region=shirt, color=gray, sim=0.000, bonus=0.60"
+        ]
+      }
+    ]
+  }
+]

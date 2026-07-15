@@ -6,39 +6,59 @@ Features:
 - Reset everything (images + DB + JSON) with one click
 - Paginated dataset grid (handles large collections)
 - Search via natural language queries
+- Show parsed query slots before results for transparency
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 
 import streamlit as st
 
 from fashion_image_search.common.config import MODEL, PATHS, SEARCH
-from fashion_image_search.common.schemas import ImageRecord
+from fashion_image_search.common.vector_db import close_all_open_stores
 from fashion_image_search.indexer.build_index import IMAGE_EXTENSIONS, build_index, iter_images
-from fashion_image_search.retriever.search import search
+from fashion_image_search.retriever.parse_query import parse_query
+from fashion_image_search.retriever.search import search, _format_parsed_query
+
+
+logger = logging.getLogger("fashion_streamlit")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
 
 
 st.set_page_config(page_title="Fashion Image Search", layout="wide")
 
-# ── Fixed paths (no user-editable inputs) ───────────────────────────────
+# ── Fixed paths (no user-editable inputs) ───────────────────────────────────
 ROOT = Path(__file__).resolve().parent
-DATASET_DIR = ROOT / "Dataset"
-JSON_PATH = ROOT / "artifacts" / "fashion_index.json"
-FAISS_PATH = ROOT / "artifacts" / "fashion_global.faiss"
-PAGE_SIZE = 12  # images per page in dataset grid
+DATASET_DIR = PATHS.data_dir          # now consistent with CLI default (Bug #9)
+JSON_PATH   = ROOT / "artifacts" / "fashion_index.json"
+FAISS_PATH  = ROOT / "artifacts" / "fashion_global.faiss"
+PAGE_SIZE   = 12                      # images per page in dataset grid
+
+# Colour chips for parsed-query display
+_SLOT_COLOURS: dict[str, str] = {
+    "red": "#e82e2e", "blue": "#2e6ec8", "green": "#37966f",
+    "yellow": "#c8a000", "orange": "#e67820", "purple": "#7c4ba0",
+    "pink": "#c85090", "black": "#222222", "white": "#888888",
+    "gray": "#666666", "brown": "#7a5030", "beige": "#a08060",
+}
 
 
-# ── Session state initialisation ────────────────────────────────────────
+# ── Session state initialisation ─────────────────────────────────────────────
 if "index_built_once" not in st.session_state:
     st.session_state.index_built_once = False
 if "dataset_page" not in st.session_state:
     st.session_state.dataset_page = 0
 
 
-# ── Helper functions ────────────────────────────────────────────────────
+# ── Helper functions ──────────────────────────────────────────────────────────
 
 @st.cache_resource
 def _faiss_available() -> bool:
@@ -69,14 +89,12 @@ def _find_in_dataset(stem: str) -> Path | None:
 
 
 def _count_images() -> int:
-    """Count image files in Dataset folder recursively."""
     if not DATASET_DIR.is_dir():
         return 0
     return len(iter_images(DATASET_DIR, limit=None))
 
 
 def _count_indexed() -> int:
-    """Return number of records in the JSON metadata file."""
     if not JSON_PATH.exists():
         return 0
     try:
@@ -87,14 +105,12 @@ def _count_indexed() -> int:
 
 
 def _index_is_usable() -> bool:
-    """Check that JSON and FAISS indexes exist and are non-empty."""
     if not JSON_PATH.exists() or JSON_PATH.stat().st_size < 10:
         return False
     return True
 
 
 def _needs_rebuild() -> bool:
-    """Return True when the index is stale or missing."""
     img_count = _count_images()
     idx_count = _count_indexed()
     if img_count == 0:
@@ -103,12 +119,13 @@ def _needs_rebuild() -> bool:
 
 
 def _run_indexing(backend: str) -> bool:
-    """Execute the indexing pipeline, return success."""
     try:
+        # Release any open FAISS handles before writing new index
+        close_all_open_stores()
+
         msg_placeholder = st.info("Running detection → colour extraction → embedding …")
         progress_bar = st.progress(0.0, text="Indexing images …")
 
-        # ── capture tqdm writes by patching tqdm to update Streamlit ──
         import tqdm as _real_tqdm
 
         class _StreamlitTqdm(_real_tqdm.tqdm):
@@ -118,7 +135,7 @@ def _run_indexing(backend: str) -> bool:
                     progress_bar.progress(self.n / self.total, text=f"Indexing {self.n}/{self.total} …")
 
         import fashion_image_search.indexer.build_index as _bi
-        _bi.tqdm = _StreamlitTqdm  # monkey-patch
+        _bi.tqdm = _StreamlitTqdm
 
         store_obj = build_index(
             data_dir=DATASET_DIR,
@@ -134,27 +151,49 @@ def _run_indexing(backend: str) -> bool:
         st.session_state.index_built_once = True
         return True
     except Exception as exc:
+        logger.exception("Indexing failed")
         st.error(f"Indexing failed: {exc}")
         return False
 
 
 def _reset_all() -> None:
-    """Delete all images from Dataset + both index files."""
-    # 1. Delete images inside Dataset (not the folder itself)
+    """Delete all Dataset images and index files with proper cleanup.
+
+    On Windows, FAISS memory-mapped files block deletion until the handle is
+    released. This ensures all stores are closed before attempting unlink.
+    Each file deletion is wrapped in a short retry loop to handle transient
+    permission errors from antivirus or shell extensions.
+    """
+    # Release any memory-mapped FAISS handles (Windows requirement)
+    close_all_open_stores()
+
+    def _safe_unlink(path: Path, description: str) -> bool:
+        """Try to delete a file, retrying briefly on permission errors."""
+        if not path.exists():
+            return False
+        for attempt in range(3):
+            try:
+                path.unlink()
+                return True
+            except OSError as exc:
+                if attempt < 2:
+                    time.sleep(0.2)  # Brief pause before retry
+                    continue
+                st.warning(f"Could not delete {description}: {exc}")
+                return False
+        return False
+
+    # Delete Dataset images
     if DATASET_DIR.is_dir():
-        for item in DATASET_DIR.iterdir():
+        for item in list(DATASET_DIR.iterdir()):
             if item.is_file():
-                item.unlink()
+                _safe_unlink(item, f"image {item.name}")
         st.info("🗑️ Dataset images deleted.")
 
-    # 2. Delete JSON index
-    if JSON_PATH.exists():
-        JSON_PATH.unlink()
+    # Delete index files with retries
+    if _safe_unlink(JSON_PATH, "JSON index"):
         st.info("🗑️ JSON index deleted.")
-
-    # 3. Delete FAISS index
-    if FAISS_PATH.exists():
-        FAISS_PATH.unlink()
+    if _safe_unlink(FAISS_PATH, "FAISS index"):
         st.info("🗑️ FAISS index deleted.")
 
     st.session_state.index_built_once = False
@@ -163,7 +202,45 @@ def _reset_all() -> None:
     st.rerun()
 
 
-# ── Sidebar — Settings ──────────────────────────────────────────────────
+def _render_parsed_query_card(parsed_query) -> None:
+    """Render a 'Parsed as:' chip row showing garment slots, scene, and style."""
+    chips: list[str] = []
+
+    for slot in parsed_query.garment_slots:
+        color_hex = _SLOT_COLOURS.get(slot.color or "", "#555555")
+        color_dot = f'<span style="color:{color_hex}; font-size:1.1em;">●</span>'
+        label = " ".join(filter(None, [slot.color, slot.garment_type])) or slot.phrase
+        chips.append(
+            f'<span style="background:#1e293b; border:1px solid #334155; '
+            f'border-radius:6px; padding:3px 10px; margin:2px; display:inline-block;">'
+            f'{color_dot} <strong>{label}</strong></span>'
+        )
+
+    if parsed_query.scene_phrase:
+        chips.append(
+            f'<span style="background:#0f3460; border:1px solid #1e5799; '
+            f'border-radius:6px; padding:3px 10px; margin:2px; display:inline-block;">'
+            f'📍 {parsed_query.scene_phrase}</span>'
+        )
+    if parsed_query.style_residual:
+        chips.append(
+            f'<span style="background:#2d1b3d; border:1px solid #6b21a8; '
+            f'border-radius:6px; padding:3px 10px; margin:2px; display:inline-block;">'
+            f'✨ {parsed_query.style_residual}</span>'
+        )
+
+    if chips:
+        st.markdown(
+            f'<div style="margin-bottom:12px;"><span style="color:#94a3b8; '
+            f'font-size:0.85em; margin-right:8px;">Parsed as:</span>'
+            + "".join(chips) + "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("Parsed as: (no structured slots — using global style embedding)")
+
+
+# ── Sidebar — Settings ────────────────────────────────────────────────────────
 
 st.title("🧥 Fashion Image Retrieval")
 
@@ -187,32 +264,46 @@ with st.sidebar:
         st.markdown("""
 | | **Offline** | **HF (HuggingFace)** |
 |---|---|---|
-| **Detector** | Hard-coded region proposals (4 fixed boxes) | Real YOLOS-fashionpedia model — detects actual garments in the image |
-| **Encoder** | Hash-based bag-of-words — no semantic understanding | Real Marqo FashionSigLIP — understands fashion concepts, colours, styles |
-| **GPU needed** | No | No (uses CPU, but GPU makes it 10× faster) |
+| **Detector** | Hard-coded region proposals (4 fixed boxes) | Real YOLOS-fashionpedia — detects actual garments |
+| **Encoder** | Hash-based bag-of-words (no semantics) | Marqo FashionSigLIP — SOTA fashion embeddings |
+| **GPU** | No | No (CPU ok, GPU 10× faster) |
 | **Internet** | No | Yes — downloads model weights once |
-| **Accuracy** | Low — synthetic features, approximate | High — state-of-the-art fashion embeddings |
-| **Use case** | Testing UI without downloading models | Real retrieval — what you should use |
+| **Accuracy** | Low | High |
 
-**Recommendation:** Use **HF** for real work. Use **Offline** only if models fail to download.
+**Recommendation:** Use **HF** for real retrieval. Use **Offline** only for testing the UI.
+        """)
+
+    with st.expander("🤖 LLM Parser Setup (openai / opencode)"):
+        st.markdown("""
+Set these environment variables **before** launching Streamlit:
+
+```powershell
+# OpenAI (cloud)
+$env:FASHION_SEARCH_LLM_API_KEY = "sk-xxxxxx"
+$env:FASHION_SEARCH_LLM_MODEL   = "gpt-4o-mini"
+
+# Local LLM via Ollama
+$env:FASHION_SEARCH_LLM_BASE_URL = "http://localhost:11434/v1"
+$env:FASHION_SEARCH_LLM_API_KEY  = "not-needed"
+$env:FASHION_SEARCH_LLM_MODEL    = "llama3"
+```
+
+Select **openai** or **openai-compatible** in the parser dropdown above.
         """)
 
     st.divider()
 
-    # ── Status panel ────────────────────────────────────────────────────
+    # ── Status panel ─────────────────────────────────────────────────────────
     st.subheader("📊 Status")
 
-    img_count = _count_images()
-    idx_count = _count_indexed()
+    img_count   = _count_images()
+    idx_count   = _count_indexed()
     needs_build = _needs_rebuild()
 
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Images in Dataset", img_count)
-        if idx_count > 0:
-            st.metric("Indexed records", idx_count)
-        else:
-            st.metric("Indexed records", "—")
+        st.metric("Indexed records", idx_count if idx_count > 0 else "—")
     with col2:
         if needs_build and img_count > 0:
             st.warning("⚠️ Index stale / missing")
@@ -234,20 +325,19 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Reset ───────────────────────────────────────────────────────────
     st.subheader("🗑️ Reset Everything")
     st.caption("Delete all uploaded images + both index files (JSON + FAISS).")
     if st.button("Reset Dataset & Indexes", type="secondary",
-                 help="⚠️ This permanently deletes ALL images in Dataset/ and both index files."):
+                 help="⚠️ Permanently deletes ALL images in Dataset/ and both index files."):
         _reset_all()
 
 
-# ── Tabbed interface ────────────────────────────────────────────────────
+# ── Tabbed interface ──────────────────────────────────────────────────────────
 
 tab_upload, tab_search = st.tabs(["📤 Upload Images", "🔍 Search"])
 
 
-# ── Tab 1: Upload ────────────────────────────────────────────────────────
+# ── Tab 1: Upload ─────────────────────────────────────────────────────────────
 
 with tab_upload:
     st.subheader("Upload fashion images to the Dataset folder")
@@ -271,8 +361,6 @@ with tab_upload:
         if saved > 0:
             st.success(f"✅ Saved {saved} image(s) to Dataset/")
             st.session_state.dataset_page = 0
-
-            # auto-reindex
             if _needs_rebuild():
                 st.info("🔄 Auto-indexing new images …")
                 if _faiss_available():
@@ -284,28 +372,26 @@ with tab_upload:
         else:
             st.warning("No new files saved — all filenames already exist in Dataset/.")
 
-    # ── Paginated dataset gallery ───────────────────────────────────────
+    # ── Paginated dataset gallery ─────────────────────────────────────────────
     if DATASET_DIR.is_dir():
         all_images = iter_images(DATASET_DIR, limit=None)
         total = len(all_images)
 
         if total > 0:
             st.subheader(f"📁 Dataset — {total} image(s)")
-
             total_pages = (total - 1) // PAGE_SIZE + 1
             page = st.session_state.dataset_page
 
             start = page * PAGE_SIZE
-            end = min(start + PAGE_SIZE, total)
+            end   = min(start + PAGE_SIZE, total)
             batch = all_images[start:end]
 
             cols = st.columns(4)
             for i, path in enumerate(batch):
                 with cols[i % 4]:
-                    st.image(str(path), width='stretch')
+                    st.image(str(path), width="stretch")
                     st.caption(path.name)
 
-            # ── Pagination controls ─────────────────────────────────────
             nav_cols = st.columns([2, 1, 1, 2])
             with nav_cols[1]:
                 if page > 0 and st.button("⬅ Previous", key="prev_page"):
@@ -315,19 +401,17 @@ with tab_upload:
                 if page < total_pages - 1 and st.button("Next ➡", key="next_page"):
                     st.session_state.dataset_page = page + 1
                     st.rerun()
-
             with nav_cols[0]:
                 st.markdown(f"Page {page + 1} / {total_pages}")
         else:
             st.info("📭 Dataset folder is empty — upload images above.")
 
 
-# ── Tab 2: Search ───────────────────────────────────────────────────────
+# ── Tab 2: Search ─────────────────────────────────────────────────────────────
 
 with tab_search:
     st.subheader("Natural language fashion search")
 
-    # Quick example chips
     st.markdown("**Try an example query:**")
     example_cols = st.columns(3)
     examples = [
@@ -338,7 +422,7 @@ with tab_search:
         "Someone wearing a blue shirt sitting on a park bench.",
     ]
     for col, example in zip(example_cols, examples[:3]):
-        if col.button(example, use_container_width=True):
+        if col.button(example, width="stretch"):
             st.session_state.query = example
 
     query = st.text_input(
@@ -372,34 +456,41 @@ with tab_search:
                     faiss_path=FAISS_PATH,
                     parser_backend=parser_backend,
                 )
+                # Parse separately to render the query card (Bug #13 fix)
+                parsed = parse_query(query, parser_backend)
             except Exception as exc:
+                logger.exception("Search failed for query=%r backend=%s parser=%s", query, backend, parser_backend)
                 st.exception(exc)
                 st.stop()
+
+        # ── Parsed query transparency card (Bug #13 fix) ──────────────────────
+        _render_parsed_query_card(parsed)
 
         if not results:
             st.warning("No results returned. Try a different query or add more images.")
             st.stop()
 
         st.success(f"Found {len(results)} result(s)")
+
         cols = st.columns(min(3, top_k))
         for idx, result in enumerate(results):
             image_path = Path(result.image_path)
             with cols[idx % len(cols)]:
                 if image_path.exists():
-                    st.image(str(image_path), width='stretch')
+                    st.image(str(image_path), width="stretch")
                 else:
                     st.warning(f"Missing: {image_path.name}")
                     alt = _find_in_dataset(image_path.stem)
                     if alt:
-                        st.image(str(alt), width='stretch')
+                        st.image(str(alt), width="stretch")
 
                 st.markdown(f"**Rank {idx + 1}**")
                 st.caption(image_path.name)
                 st.write(f"Score: `{result.score:.3f}`")
                 with st.expander("Score breakdown"):
                     st.write(f"global: `{result.global_score:.3f}`")
-                    st.write(f"scene: `{result.scene_score:.3f}`")
-                    st.write(f"slot: `{result.slot_score:.3f}`")
-                    st.write(f"attribute bonus: `{result.attribute_bonus:.3f}`")
+                    st.write(f"scene:  `{result.scene_score:.3f}`")
+                    st.write(f"slot:   `{result.slot_score:.3f}`")
+                    st.write(f"attr bonus: `{result.attribute_bonus:.3f}`")
                     for line in result.slot_breakdown:
                         st.write(f"- {line}")

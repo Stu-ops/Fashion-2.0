@@ -13,24 +13,55 @@ from fashion_image_search.indexer.attributes import PALETTE
 from fashion_image_search.indexer.embed import embed_text
 
 
-GARMENTS = {
-    "raincoat": {"raincoat", "coat", "outerwear", "jacket"},
-    "tie": {"tie", "neckwear"},
-    "shirt": {"shirt", "button-down", "blouse", "top", "t-shirt", "tee"},
-    "blazer": {"blazer", "suit", "jacket"},
-    "hoodie": {"hoodie", "sweatshirt"},
-    "pants": {"pants", "trousers", "jeans"},
-    "dress": {"dress"},
-}
-SCENE_TERMS = {
-    "office": {"office", "business", "professional", "workplace"},
-    "park": {"park", "bench", "garden"},
-    "city street": {"city", "urban", "street", "walk"},
-    "home": {"home", "indoor", "room"},
-    "formal setting": {"formal", "business"},
-}
-STYLE_TERMS = {"casual", "weekend", "professional", "formal", "business", "modern"}
+# ── Canonical garment vocabulary ─────────────────────────────────────────────
+#
+# Rules:
+#   • Each key is the *canonical* garment type stored in search results and
+#     used in _category_matches() in search.py.
+#   • Aliases are the tokens the rule parser looks for in the raw query text.
+#   • "jacket" lives ONLY under "blazer" — removing it from "raincoat" fixes
+#     the silent alias-collision bug (Bug #3) where "jacket" always resolved
+#     to "raincoat" because that key was defined first (dict insertion order).
+#   • "coat" is its own canonical type, separate from "raincoat", so that
+#     Fashionpedia's "coat" label normalises correctly to a query-matchable key.
 
+GARMENTS: dict[str, set[str]] = {
+    "coat":     {"coat", "overcoat", "trench", "parka", "outerwear"},
+    "raincoat": {"raincoat", "rain-coat"},            # "jacket" removed here
+    "tie":      {"tie", "neckwear", "necktie"},
+    "shirt":    {"shirt", "button-down", "blouse", "top", "t-shirt", "tee", "sweater",
+                 "cardigan", "sweatshirt"},
+    "blazer":   {"blazer", "suit", "jacket"},         # "jacket" lives here only
+    "hoodie":   {"hoodie"},
+    "pants":    {"pants", "trousers", "jeans", "trouser", "leggings", "tights"},
+    "shorts":   {"shorts", "short"},                  # Bug #10 — was missing
+    "skirt":    {"skirt", "mini-skirt", "pleated", "mini"},  # Bug #10 — was missing
+    "dress":    {"dress", "jumpsuit", "gown"},
+    "vest":     {"vest", "waistcoat"},
+    "scarf":    {"scarf"},
+    "hat":      {"hat", "cap", "beanie", "headband"},
+    "shoe":     {"shoe", "shoes", "sneaker", "sneakers", "boot", "boots"},
+    "glasses":  {"glasses", "sunglasses", "shades"},
+    "glove":    {"glove", "gloves"},
+}
+
+SCENE_TERMS: dict[str, set[str]] = {
+    "office":          {"office", "business", "professional", "workplace", "desk"},
+    "park":            {"park", "bench", "garden", "outdoor", "nature"},
+    "city street":     {"city", "urban", "street", "walk", "sidewalk"},
+    "home":            {"home", "indoor", "room", "living"},
+    "formal setting":  {"formal", "ceremony", "gala", "event"},
+    "beach":           {"beach", "sand", "ocean", "sea", "summer"},
+    "gym":             {"gym", "workout", "sport", "athletic", "fitness"},
+}
+
+STYLE_TERMS: set[str] = {
+    "casual", "weekend", "professional", "formal", "business",
+    "modern", "vintage", "classic", "sporty", "elegant", "chic",
+}
+
+
+# ── LLM system prompt ─────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You extract structured slots for a fashion image retrieval system.
 Return only valid JSON. Do not include markdown.
@@ -43,13 +74,17 @@ Schema:
 Rules:
 - Preserve multiple garments as separate objects.
 - Bind each color to the garment it describes.
-- Use simple garment types such as shirt, tie, blazer, coat, raincoat, pants, dress, hoodie.
+- Use simple garment types such as shirt, tie, blazer, coat, raincoat, pants,
+  dress, hoodie, shorts, skirt, vest, hat, shoe, glasses, glove, scarf.
 - Put location/context words like office, park, city street, home, formal setting in scene.
-- Put vibe words like casual, weekend, professional, business, formal in style.
+- Put vibe words like casual, weekend, professional, business, formal, vintage in style.
 """
 
 
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
 def _canonical_garment(token: str) -> str | None:
+    """Map a raw query token to its canonical garment type, or None if not a garment."""
     for canonical, aliases in GARMENTS.items():
         if token in aliases:
             return canonical
@@ -87,6 +122,11 @@ def _parsed_from_payload(text: str, payload: dict[str, object]) -> ParsedQuery:
             color = _clean_optional_string(item.get("color"))
             if not garment_type and not color:
                 continue
+            # Canonicalise the LLM-returned garment type
+            if garment_type:
+                canonical = _canonical_garment(garment_type)
+                if canonical:
+                    garment_type = canonical
             phrase = " ".join(part for part in [color, garment_type] if part)
             slots.append(GarmentSlot(garment_type=garment_type, color=color, phrase=phrase))
 
@@ -99,7 +139,15 @@ def _parsed_from_payload(text: str, payload: dict[str, object]) -> ParsedQuery:
     )
 
 
+# ── Rule-based parser ─────────────────────────────────────────────────────────
+
 def parse_query_rule(text: str) -> ParsedQuery:
+    """Parse a fashion query using rule-based NER with sliding-window colour binding.
+
+    Colour binding: for each detected garment token, look back up to 4 tokens to
+    find a colour word. This correctly associates "red" with "tie" and "white" with
+    "shirt" in "a red tie and a white shirt".
+    """
     tokens = re.findall(r"[a-z-]+", text.lower())
     slots: list[GarmentSlot] = []
     for index, token in enumerate(tokens):
@@ -112,6 +160,7 @@ def parse_query_rule(text: str) -> ParsedQuery:
         phrase = " ".join(item for item in [color, garment] if item)
         slots.append(GarmentSlot(garment_type=garment, color=color, phrase=phrase or garment))
 
+    # Deduplicate by (type, color) while preserving in-text order
     seen: set[tuple[str | None, str | None]] = set()
     deduped: list[GarmentSlot] = []
     for slot in slots:
@@ -130,7 +179,17 @@ def parse_query_rule(text: str) -> ParsedQuery:
     )
 
 
+# ── LLM-based parser ──────────────────────────────────────────────────────────
+
 def parse_query_openai_compatible(text: str) -> ParsedQuery:
+    """Parse a fashion query via any OpenAI-compatible chat completion endpoint.
+
+    Required env vars:
+        FASHION_SEARCH_LLM_API_KEY  (or OPENAI_API_KEY)
+    Optional:
+        FASHION_SEARCH_LLM_BASE_URL  (default: https://api.openai.com/v1)
+        FASHION_SEARCH_LLM_MODEL     (default: gpt-4o-mini)
+    """
     base_url = os.getenv("FASHION_SEARCH_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     api_key = os.getenv("FASHION_SEARCH_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     model = os.getenv("FASHION_SEARCH_LLM_MODEL", "gpt-4o-mini")
@@ -167,7 +226,17 @@ def parse_query_openai_compatible(text: str) -> ParsedQuery:
     return _parsed_from_payload(text, json.loads(content))
 
 
+# ── Public dispatcher ─────────────────────────────────────────────────────────
+
 def parse_query(text: str, parser_backend: str = "rule") -> ParsedQuery:
+    """Parse *text* using the specified backend.
+
+    Backends:
+        ``"rule"``                – fast, offline, no setup required (default)
+        ``"openai"`` / ``"opencode"`` / ``"openai-compatible"``
+                                  – LLM parsing via any OpenAI-compatible API;
+                                    falls back to rule parser on network errors
+    """
     if parser_backend == "rule":
         return parse_query_rule(text)
     if parser_backend in {"openai", "opencode", "openai-compatible"}:
@@ -175,4 +244,4 @@ def parse_query(text: str, parser_backend: str = "rule") -> ParsedQuery:
             return parse_query_openai_compatible(text)
         except RuntimeError:
             return parse_query_rule(text)
-    raise ValueError(f"Unknown parser backend: {parser_backend}")
+    raise ValueError(f"Unknown parser backend: {parser_backend!r}")
