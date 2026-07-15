@@ -9,3 +9,6 @@ accelerate>=0.33
 sentencepiece>=0.2
 ftfy>=6.2
 open_clip_torch>=2.24
+numpy>=1.24
+regex>=2023.0
+requests>=2.31
