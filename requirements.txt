@@ -1,0 +1,11 @@
+Pillow>=10.0
+tqdm>=4.66
+faiss-cpu>=1.8
+streamlit>=1.36
+torch>=2.2
+torchvision>=0.17
+transformers>=4.44,<5
+accelerate>=0.33
+sentencepiece>=0.2
+ftfy>=6.2
+open_clip_torch>=2.24
