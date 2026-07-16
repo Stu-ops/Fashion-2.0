@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import inspect
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,9 @@ from PIL import Image
 
 from fashion_image_search.common.config import MODEL
 from fashion_image_search.common.schemas import BBox
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Fashionpedia → canonical category mapping (Bug #1 fix) ───────────────────
@@ -177,8 +181,27 @@ class HuggingFaceFashionDetector:
         self.processor = AutoImageProcessor.from_pretrained(model_name)
         self.model = AutoModelForObjectDetection.from_pretrained(model_name)
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        elif device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "FASHION_SEARCH_DEVICE=cuda was requested, but this PyTorch install "
+                "does not see CUDA. Install a CUDA-enabled torch build in .venv."
+            )
         self.device = device
+        logger.info(
+            "Loading YOLOS detector requested_device=%s selected_device=%s "
+            "torch=%s cuda_available=%s cuda_version=%s",
+            MODEL.device,
+            self.device,
+            torch.__version__,
+            torch.cuda.is_available(),
+            torch.version.cuda,
+        )
         self.model.to(self.device)
         self.model.eval()
         self.threshold = threshold

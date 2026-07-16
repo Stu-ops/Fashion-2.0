@@ -10,13 +10,69 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Strip shell-style inline comments outside quotes."""
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char in {"'", '"'}:
+            if quote == char:
+                quote = None
+            elif quote is None:
+                quote = char
+            continue
+        if char == "#" and quote is None and (index == 0 or value[index - 1].isspace()):
+            return value[:index].rstrip()
+    return value
+
+
+def load_dotenv(path: Path = ROOT / ".env", *, override: bool = False) -> None:
+    """Load simple KEY=VALUE entries from .env.
+
+    With ``override=False`` this preserves existing shell environment variables;
+    with ``override=True`` it refreshes them from the file.
+
+    Idempotent (uses ``setdefault``) — safe to call multiple times.  Called
+    automatically at module import, but can also be invoked later from query
+    parsers or the Streamlit UI to pick up newly-created .env files without
+    restarting the process.
+    """
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = _strip_inline_comment(value.strip()).strip('"').strip("'")
+        if key:
+            if override:
+                os.environ[key] = value
+            else:
+                os.environ.setdefault(key, value)
+
+
+load_dotenv()
+
+
 @dataclass(frozen=True)
 class ModelConfig:
     detector_name: str = "valentinafevu/yolos-fashionpedia"
     encoder_name: str = "Marqo/marqo-fashionSigLIP"
     detector_threshold: float = 0.50
     max_regions: int = 6
-    embedding_dim: int = 64   # offline mode only; HF mode uses 768 (FashionSigLIP)
+    embedding_dim: int = 64
     backend: str = os.getenv("FASHION_SEARCH_BACKEND", "offline")
     device: str = os.getenv("FASHION_SEARCH_DEVICE", "auto")
 
@@ -33,8 +89,6 @@ class SearchConfig:
 
 @dataclass(frozen=True)
 class Paths:
-    # Bug #9 fix: unified data_dir so CLI and Streamlit both use Dataset/ by default.
-    # Override via --data-dir when running HF indexing on val_test2020_sample_1600/test.
     data_dir: Path = ROOT / "Dataset"
     index_path: Path = ROOT / "artifacts" / "fashion_index.json"
     faiss_index_path: Path = ROOT / "artifacts" / "fashion_global.faiss"

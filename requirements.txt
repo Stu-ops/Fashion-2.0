@@ -1,14 +1,22 @@
+# Core pipeline dependencies
 Pillow>=10.0
 tqdm>=4.66
+numpy>=1.24
+regex>=2023.0
+requests>=2.31
+
+# Database and visualization
 faiss-cpu>=1.8
 streamlit>=1.36
+
+# Deep learning and transformers (GPU/CPU fallback supported)
 torch>=2.2
 torchvision>=0.17
 transformers>=4.44,<5
 accelerate>=0.33
 sentencepiece>=0.2
 ftfy>=6.2
-open_clip_torch>=2.24
-numpy>=1.24
-regex>=2023.0
-requests>=2.31
+open-clip-torch>=2.24
+
+# Testing dependencies
+pytest>=7.0

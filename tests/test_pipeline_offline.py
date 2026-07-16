@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+import urllib.error
 
 from PIL import Image
 
+from fashion_image_search.common.config import load_dotenv
 from fashion_image_search.common.schemas import GarmentSlot, ImageRecord, RegionRecord
 from fashion_image_search.common.vector_db import JsonVectorStore
 from fashion_image_search.indexer.build_index import build_index
 from fashion_image_search.indexer.detect import _normalize_fashionpedia_label
-from fashion_image_search.retriever.parse_query import parse_query
+from fashion_image_search.retriever.parse_query import parse_query, parse_query_openai_compatible
 from fashion_image_search.retriever.search import search, _record_matches_slots
 
 
@@ -83,6 +89,99 @@ class OfflinePipelineTest(unittest.TestCase):
             GarmentSlot(garment_type="tie", color="red", phrase="red tie"),
         ]
         self.assertTrue(_record_matches_slots(record, single_slot_matching))
+
+    @patch("urllib.request.urlopen")
+    def test_llm_parser_success(self, mock_urlopen) -> None:
+        # Mock response from LLM API
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps({
+                            "garments": [
+                                {"color": "red", "type": "tie"},
+                                {"color": "white", "type": "shirt"}
+                            ],
+                            "scene": "formal setting",
+                            "style": "professional"
+                        })
+                    }
+                }
+            ]
+        }).encode("utf-8")
+        
+        # Configure context manager for urlopen
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+
+        # Temporarily set env API key so parser doesn't raise error
+        with patch.dict(os.environ, {"FASHION_SEARCH_LLM_API_KEY": "mock-key"}):
+            parsed = parse_query("A red tie and a white shirt in a formal setting.", parser_backend="openai")
+            
+            # Verify parsed slots
+            self.assertEqual([(slot.color, slot.garment_type) for slot in parsed.garment_slots], [
+                ("red", "tie"),
+                ("white", "shirt"),
+            ])
+            self.assertEqual(parsed.scene_phrase, "formal setting")
+            self.assertEqual(parsed.style_residual, "professional")
+
+    @patch("urllib.request.urlopen")
+    def test_llm_parser_fallback_to_rule_on_failure(self, mock_urlopen) -> None:
+        # urlopen raises an exception to simulate failure or missing network
+        mock_urlopen.side_effect = Exception("Connection timed out")
+        
+        with patch.dict(os.environ, {"FASHION_SEARCH_LLM_API_KEY": "mock-key"}):
+            # Should not raise error, but fallback to rule parser
+            parsed = parse_query("A red tie and a white shirt in a formal setting.", parser_backend="openai")
+            self.assertEqual([(slot.color, slot.garment_type) for slot in parsed.garment_slots], [
+                ("red", "tie"),
+                ("white", "shirt"),
+            ])
+
+    def test_dotenv_override_allows_updated_parser_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("FASHION_SEARCH_LLM_API_KEY=first-key\n", encoding="utf-8")
+
+            with patch.dict(os.environ, {}, clear=True):
+                load_dotenv(env_path)
+                self.assertEqual(os.environ["FASHION_SEARCH_LLM_API_KEY"], "first-key")
+
+                env_path.write_text("FASHION_SEARCH_LLM_API_KEY=second-key\n", encoding="utf-8")
+                load_dotenv(env_path)
+                self.assertEqual(os.environ["FASHION_SEARCH_LLM_API_KEY"], "first-key")
+
+                load_dotenv(env_path, override=True)
+                self.assertEqual(os.environ["FASHION_SEARCH_LLM_API_KEY"], "second-key")
+
+    @patch("fashion_image_search.retriever.parse_query.load_dotenv")
+    @patch("urllib.request.urlopen")
+    def test_llm_parser_http_error_mentions_provider_context(self, mock_urlopen, mock_load_dotenv) -> None:
+        mock_load_dotenv.return_value = None
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://provider.example/v1/chat/completions",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=BytesIO(b'{"error":"model access denied"}'),
+        )
+
+        with patch.dict(os.environ, {
+            "FASHION_SEARCH_LLM_BASE_URL": "https://provider.example/v1",
+            "FASHION_SEARCH_LLM_API_KEY": "sk-test-secret-1234",
+            "FASHION_SEARCH_LLM_MODEL": "provider/model",
+        }, clear=True):
+            with self.assertRaises(RuntimeError) as ctx:
+                parse_query_openai_compatible("a red shirt")
+
+        message = str(ctx.exception)
+        self.assertIn("HTTP 403 Forbidden", message)
+        self.assertIn("provider/model", message)
+        self.assertIn("provider.example", message)
+        self.assertIn("sk-tes...1234", message)
+        self.assertNotIn("sk-test-secret-1234", message)
 
     def test_build_index_and_search(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

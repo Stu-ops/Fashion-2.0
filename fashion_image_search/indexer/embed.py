@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from pathlib import Path
@@ -16,6 +17,7 @@ from fashion_image_search.indexer.attributes import PALETTE, dominant_color
 
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
+logger = logging.getLogger(__name__)
 
 
 def _normalize(vector: Vector) -> Vector:
@@ -81,8 +83,27 @@ class HuggingFaceFashionEncoder:
 
         self.torch = torch
         if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+        elif device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "FASHION_SEARCH_DEVICE=cuda was requested, but this PyTorch install "
+                "does not see CUDA. Install a CUDA-enabled torch build in .venv."
+            )
         self.device = device
+        logger.info(
+            "Loading FashionSigLIP encoder requested_device=%s selected_device=%s "
+            "torch=%s cuda_available=%s cuda_version=%s",
+            MODEL.device,
+            self.device,
+            torch.__version__,
+            torch.cuda.is_available(),
+            torch.version.cuda,
+        )
         open_clip_name = model_name if model_name.startswith("hf-hub:") else f"hf-hub:{model_name}"
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(open_clip_name)
         self.tokenizer = open_clip.get_tokenizer(open_clip_name)

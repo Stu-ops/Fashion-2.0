@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
 import urllib.request
 
+from fashion_image_search.common.config import load_dotenv
 from fashion_image_search.common.schemas import GarmentSlot, ParsedQuery
 from fashion_image_search.indexer.attributes import PALETTE
 from fashion_image_search.indexer.embed import embed_text
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Canonical garment vocabulary ─────────────────────────────────────────────
@@ -82,6 +87,42 @@ Rules:
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _redact_secret(value: str) -> str:
+    if len(value) <= 12:
+        return "<set>"
+    return f"{value[:6]}...{value[-4:]}"
+
+
+def _http_error_message(
+    exc: urllib.error.HTTPError,
+    *,
+    base_url: str,
+    model: str,
+    api_key: str,
+) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        body = ""
+    if len(body) > 500:
+        body = f"{body[:500]}..."
+
+    hint = ""
+    if exc.code in {401, 403}:
+        hint = (
+            " Check that FASHION_SEARCH_LLM_BASE_URL, FASHION_SEARCH_LLM_MODEL, "
+            "and the API key all belong to the same provider/account."
+        )
+
+    message = (
+        f"HTTP {exc.code} {exc.reason} from {base_url}/chat/completions "
+        f"using model={model!r} and key={_redact_secret(api_key)}."
+    )
+    if body:
+        message = f"{message} Response body: {body}"
+    return f"{message}{hint}"
+
 
 def _canonical_garment(token: str) -> str | None:
     """Map a raw query token to its canonical garment type, or None if not a garment."""
@@ -190,6 +231,9 @@ def parse_query_openai_compatible(text: str) -> ParsedQuery:
         FASHION_SEARCH_LLM_BASE_URL  (default: https://api.openai.com/v1)
         FASHION_SEARCH_LLM_MODEL     (default: gpt-4o-mini)
     """
+    # Re-load .env so edited parser credentials are picked up by long-running
+    # Streamlit sessions without requiring a process restart.
+    load_dotenv(override=True)
     base_url = os.getenv("FASHION_SEARCH_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     api_key = os.getenv("FASHION_SEARCH_LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     model = os.getenv("FASHION_SEARCH_LLM_MODEL", "gpt-4o-mini")
@@ -217,8 +261,16 @@ def parse_query_openai_compatible(text: str) -> ParsedQuery:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            "OpenAI-compatible parser failed: "
+            + _http_error_message(exc, base_url=base_url, model=model, api_key=api_key)
+        ) from exc
     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"OpenAI-compatible parser failed: {exc}") from exc
+        raise RuntimeError(
+            f"OpenAI-compatible parser failed for {base_url}/chat/completions "
+            f"using model={model!r}: {exc}"
+        ) from exc
 
     content = raw["choices"][0]["message"]["content"]
     if not isinstance(content, str):
@@ -228,20 +280,36 @@ def parse_query_openai_compatible(text: str) -> ParsedQuery:
 
 # ── Public dispatcher ─────────────────────────────────────────────────────────
 
-def parse_query(text: str, parser_backend: str = "rule") -> ParsedQuery:
+def parse_query(
+    text: str,
+    parser_backend: str = "rule",
+    *,
+    fallback_on_error: bool = True,
+) -> ParsedQuery:
     """Parse *text* using the specified backend.
 
     Backends:
         ``"rule"``                – fast, offline, no setup required (default)
         ``"openai"`` / ``"opencode"`` / ``"openai-compatible"``
                                   – LLM parsing via any OpenAI-compatible API;
-                                    falls back to rule parser on network errors
+                                    falls back to rule parser on errors by default
     """
     if parser_backend == "rule":
         return parse_query_rule(text)
     if parser_backend in {"openai", "opencode", "openai-compatible"}:
         try:
-            return parse_query_openai_compatible(text)
-        except RuntimeError:
+            parsed = parse_query_openai_compatible(text)
+            logger.info(
+                "LLM parser succeeded for backend=%s slots=%s scene=%r style=%r",
+                parser_backend,
+                [(slot.color, slot.garment_type) for slot in parsed.garment_slots],
+                parsed.scene_phrase,
+                parsed.style_residual,
+            )
+            return parsed
+        except Exception:
+            if not fallback_on_error:
+                raise
+            logger.exception("LLM parser failed for backend=%s; falling back to rule parser", parser_backend)
             return parse_query_rule(text)
     raise ValueError(f"Unknown parser backend: {parser_backend!r}")

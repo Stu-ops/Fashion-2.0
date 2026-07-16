@@ -242,6 +242,7 @@ def search(
     store_kind: str = "faiss",
     faiss_path: Path = PATHS.faiss_index_path,
     parser_backend: str = "rule",
+    parsed_query: ParsedQuery | None = None,
 ) -> list[SearchResult]:
     """Two-stage fashion retrieval.
 
@@ -249,7 +250,7 @@ def search(
     Stage 2: Compositional region-aware rerank with per-slot scoring.
     """
     store = make_vector_store(store_kind, index_path, faiss_path).load()
-    parsed = parse_query(query, parser_backend)
+    parsed = parsed_query or parse_query(query, parser_backend)
     query_embedding = embed_text_backend(query, embedding_backend)
 
     shortlist = store.search_global(query_embedding, SEARCH.stage1_k)

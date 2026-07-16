@@ -22,7 +22,7 @@ from fashion_image_search.common.config import MODEL, PATHS, SEARCH
 from fashion_image_search.common.vector_db import close_all_open_stores
 from fashion_image_search.indexer.build_index import IMAGE_EXTENSIONS, build_index, iter_images
 from fashion_image_search.retriever.parse_query import parse_query
-from fashion_image_search.retriever.search import search, _format_parsed_query
+from fashion_image_search.retriever.search import search
 
 
 logger = logging.getLogger("fashion_streamlit")
@@ -67,6 +67,39 @@ def _faiss_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+@st.cache_data
+def _torch_device_status() -> dict[str, object]:
+    try:
+        import torch
+    except ImportError:
+        return {
+            "torch_installed": False,
+            "torch_version": None,
+            "configured_device": MODEL.device,
+            "effective_device": "unavailable",
+            "cuda_available": False,
+            "cuda_version": None,
+            "cuda_device": None,
+            "mps_available": False,
+        }
+    if torch.cuda.is_available():
+        effective_device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        effective_device = "mps"
+    else:
+        effective_device = "cpu"
+    return {
+        "torch_installed": True,
+        "torch_version": torch.__version__,
+        "configured_device": MODEL.device,
+        "effective_device": effective_device,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_version": torch.version.cuda,
+        "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "mps_available": effective_device == "mps",
+    }
 
 
 def _fmt_size(size_bytes: int) -> str:
@@ -255,7 +288,7 @@ with st.sidebar:
     )
     parser_backend = st.selectbox(
         "Query parser",
-        ["rule", "openai", "opencode", "openai-compatible"],
+        ["rule", "openai", "openai-compatible"],
         index=0,
     )
     top_k = st.slider("Top K", min_value=1, max_value=30, value=SEARCH.default_top_k)
@@ -273,22 +306,22 @@ with st.sidebar:
 **Recommendation:** Use **HF** for real retrieval. Use **Offline** only for testing the UI.
         """)
 
-    with st.expander("🤖 LLM Parser Setup (openai / opencode)"):
+    with st.expander("🤖 LLM parser setup"):
         st.markdown("""
-Set these environment variables **before** launching Streamlit:
+Set these values in `.env` or as PowerShell environment variables before launching Streamlit:
 
 ```powershell
 # OpenAI (cloud)
 $env:FASHION_SEARCH_LLM_API_KEY = "sk-xxxxxx"
 $env:FASHION_SEARCH_LLM_MODEL   = "gpt-4o-mini"
 
-# Local LLM via Ollama
+# Any OpenAI-compatible endpoint: OpenCode, Ollama, vLLM, TGI, etc.
 $env:FASHION_SEARCH_LLM_BASE_URL = "http://localhost:11434/v1"
 $env:FASHION_SEARCH_LLM_API_KEY  = "not-needed"
 $env:FASHION_SEARCH_LLM_MODEL    = "llama3"
 ```
 
-Select **openai** or **openai-compatible** in the parser dropdown above.
+Select **openai-compatible** for local/OpenCode-style providers.
         """)
 
     st.divider()
@@ -311,6 +344,22 @@ Select **openai** or **openai-compatible** in the parser dropdown above.
             st.info("📭 No images yet")
         else:
             st.success("✓ Index up-to-date")
+
+    device_status = _torch_device_status()
+    if device_status["torch_installed"]:
+        if device_status["cuda_available"]:
+            device_detail = device_status["cuda_device"]
+        elif device_status["mps_available"]:
+            device_detail = "Apple MPS available"
+        else:
+            device_detail = "CPU runtime"
+        st.caption(
+            f"Device: configured `{device_status['configured_device']}` "
+            f"→ effective `{device_status['effective_device']}` | "
+            f"torch `{device_status['torch_version']}` | {device_detail}"
+        )
+    else:
+        st.caption("Device: torch is not installed")
 
     build_disabled = img_count == 0
     if st.button("⚡ Build / Rebuild Index", disabled=build_disabled, type="primary",
@@ -447,6 +496,17 @@ with tab_search:
 
         with st.spinner("Running Stage 1 ANN recall + Stage 2 region rerank …"):
             try:
+                logger.info(
+                    "Running search query=%r backend=%s parser=%s",
+                    query,
+                    backend,
+                    parser_backend,
+                )
+                parsed = parse_query(
+                    query,
+                    parser_backend,
+                    fallback_on_error=(parser_backend == "rule"),
+                )
                 results = search(
                     index_path=JSON_PATH,
                     query=query,
@@ -455,9 +515,8 @@ with tab_search:
                     store_kind="faiss",
                     faiss_path=FAISS_PATH,
                     parser_backend=parser_backend,
+                    parsed_query=parsed,
                 )
-                # Parse separately to render the query card (Bug #13 fix)
-                parsed = parse_query(query, parser_backend)
             except Exception as exc:
                 logger.exception("Search failed for query=%r backend=%s parser=%s", query, backend, parser_backend)
                 st.exception(exc)
